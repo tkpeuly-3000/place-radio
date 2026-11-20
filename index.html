@@ -1,0 +1,1504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Place Radio</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b3a66">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* Layout: live sky canvas behind a frosted radio console; two columns on wide screens (deck | weather + log), one stacked column on phones */
+  :root{
+    --sky-top:#2b4d7e; --sky-bot:#e7a96b;
+    --panel:rgba(14,16,24,.6); --well:rgba(255,255,255,.06); --line:rgba(255,255,255,.13);
+    --ink:#f4f1ec; --dim:rgba(244,241,236,.6); --faint:rgba(244,241,236,.38);
+    --accent:#ffb347; --on-accent:#1a1206; --bad:#ff6b6b;
+    --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --mono:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html{background:var(--sky-bot)}
+  html,body{margin:0;min-height:100%}
+  body{
+    font-family:var(--display); color:var(--ink); font-size:15px;
+    background:linear-gradient(180deg,var(--sky-top),var(--sky-bot) 85%);
+    min-height:100vh; display:flex; justify-content:center; align-items:flex-start;
+    padding-block:28px;
+    padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px));
+  }
+  #sky{position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:0}
+
+  .console{
+    position:relative; z-index:1; width:100%; max-width:600px;
+    background:var(--panel); backdrop-filter:blur(20px) saturate(1.25); -webkit-backdrop-filter:blur(20px) saturate(1.25);
+    border:1px solid var(--line); border-radius:24px; padding:22px;
+    display:flex; flex-direction:column; gap:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.35);
+  }
+  .section-head{border-top:1px solid var(--line); padding-top:22px; margin-top:6px; display:flex; flex-direction:column; gap:4px}
+  .section-head h2{margin:0; font-size:22px; font-weight:800; letter-spacing:-.015em}
+  .section-head p{margin:0; color:var(--dim); font-size:13.5px; line-height:1.45}
+  .mood{font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase; display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:-4px}
+  .chip{border:1px solid var(--accent); color:var(--accent); border-radius:999px; padding:4px 11px}
+  .modetag{border:1px solid var(--accent); color:var(--accent); border-radius:12px; padding:4px 11px; line-height:1.5}
+  .modetag:empty{display:none}
+  .moodq{flex-basis:100%; text-transform:none; letter-spacing:.02em; color:var(--dim); font-size:12.5px}
+  .moodq:empty{display:none}
+
+  /* header */
+  .brand{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+  .brand h1{margin:0; font-size:clamp(28px,5vw,40px); font-weight:800; letter-spacing:-.025em; line-height:1}
+  .brand h1 em{font-style:normal; color:var(--accent)}
+  .onair{display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--dim); letter-spacing:.12em; text-transform:uppercase}
+  .dot{width:8px; height:8px; border-radius:50%; background:#666}
+  .dot.live{background:#ff4d4d; box-shadow:0 0 10px #ff4d4d; animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* shared bits */
+  .label{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint)}
+  input, select{
+    font:inherit; font-size:16px; color:var(--ink); background:var(--well);
+    border:1px solid var(--line); border-radius:12px; padding:11px 14px; width:100%; min-width:0;
+  }
+  select{width:auto; font-size:13px; padding:7px 10px; font-family:var(--mono)}
+  input::placeholder{color:var(--faint)}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  button{
+    font:inherit; font-weight:700; cursor:pointer; border:0; border-radius:12px; padding:11px 16px;
+    background:var(--accent); color:var(--on-accent); white-space:nowrap;
+    transition:transform .12s ease, background .2s ease;
+  }
+  button:active{transform:scale(.97)}
+  button.ghost{background:var(--well); color:var(--ink); border:1px solid var(--line)}
+  button.ghost:hover:not(:disabled){background:rgba(255,255,255,.12)}
+  button:disabled{opacity:.4; cursor:default}
+
+  .tune{display:flex; gap:8px}
+
+  /* station presets */
+  .presets{display:flex; flex-direction:column; gap:8px}
+  .preset-row{display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; scrollbar-width:thin}
+  .preset{
+    display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:8px 12px; border-radius:12px;
+    background:var(--well); border:1px solid var(--line); color:var(--ink); font-weight:600; position:relative; flex:none;
+  }
+  .preset small{font-family:var(--mono); font-size:10px; color:var(--faint); font-weight:400; letter-spacing:.08em}
+  .preset.on{border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent)}
+  .preset.on small{color:var(--accent)}
+  .preset .x{position:absolute; top:-6px; right:-6px; width:20px; height:20px; padding:0; border-radius:50%; font-size:12px; line-height:20px; background:var(--bad); color:#fff; display:none}
+  .presets.editing .preset .x{display:block}
+  .preset-tools{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px 12px}
+  .linkbtn{background:none; border:0; padding:2px 0; color:var(--dim); font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; font-weight:600}
+  .linkbtn:hover{color:var(--accent)}
+
+  /* weather panel */
+  .weather{background:var(--well); border:1px solid var(--line); border-radius:18px; padding:18px; display:flex; flex-direction:column; gap:14px}
+  .readout{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:4px 18px; align-items:end}
+  .temp{font-size:clamp(60px,14vw,88px); font-weight:800; line-height:.85; letter-spacing:-.045em; grid-row:span 2}
+  .temp sup{font-size:.42em; vertical-align:top; position:relative; top:.15em; color:var(--dim); font-weight:600}
+  .place{font-size:20px; font-weight:700; line-height:1.15; overflow-wrap:anywhere}
+  .cond{font-family:var(--mono); font-size:12.5px; color:var(--dim)}
+  .stats{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px}
+  .stat{display:flex; flex-direction:column; gap:2px; min-width:0}
+  .stat b{font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .hours{display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; border-top:1px solid var(--line); padding-top:12px}
+  .hr{display:flex; flex-direction:column; align-items:center; gap:4px; font-variant-numeric:tabular-nums}
+  .hr .h{font-family:var(--mono); font-size:11px; color:var(--faint)}
+  .hr .i{font-size:20px; line-height:1}
+  .hr .tp{font-weight:700; font-size:14px}
+  .scan{font-family:var(--mono); font-size:11px; color:var(--faint); display:flex; align-items:center; gap:8px; letter-spacing:.04em}
+  .scan .ring{width:10px; height:10px; border-radius:50%; border:2px solid var(--faint); border-top-color:transparent}
+  .scan.busy{color:var(--accent)} .scan.busy .ring{border-color:var(--accent); border-top-color:transparent; animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* vibe picker */
+  .vibes{display:flex; flex-direction:column; gap:8px}
+  .vibe-row{display:flex; gap:6px; flex-wrap:wrap}
+  .vchip{font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; font-weight:600; padding:6px 11px; border-radius:999px; background:transparent; color:var(--dim); border:1px solid var(--line)}
+  .vchip.on{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  .vchip.now:not(.on){border-color:var(--accent); color:var(--accent)}
+  .music{display:flex; flex-direction:column; gap:8px}
+  .sub{background:var(--well); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:10px; font-size:13.5px; line-height:1.45}
+  .sub b{color:var(--accent)}
+  .lchip{font-size:12.5px; font-weight:600; padding:6px 12px; border-radius:999px; background:transparent; color:var(--dim); border:1px solid var(--line)}
+  .lchip[aria-pressed="true"]{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  .addlang{display:flex; gap:8px}
+  .addlang input{font-size:14px; padding:8px 12px}
+  .addlang button{padding:8px 14px; font-size:13px}
+  .langs{display:flex; flex-direction:column; gap:8px}
+  .lchip.any{border-style:dashed}
+  .lchip.any[aria-pressed="true"]{border-style:solid}
+  .seg{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; background:var(--well); border:1px solid var(--line); border-radius:14px; padding:4px}
+  .seg button{background:transparent; color:var(--dim); border-radius:10px; padding:9px 10px; display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; white-space:normal; font-size:14px}
+  .seg button small{font-family:var(--mono); font-size:10.5px; font-weight:400; color:var(--faint); letter-spacing:.02em}
+  .seg button[aria-checked="true"]{background:var(--accent); color:var(--on-accent)}
+  .seg button[aria-checked="true"] small{color:var(--on-accent); opacity:.75}
+  /* vibe categories */
+  .vcats{display:flex; gap:6px; flex-wrap:wrap}
+  .vcat{font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; font-weight:600; padding:7px 12px; border-radius:999px; background:transparent; color:var(--dim); border:1px solid var(--line); display:inline-flex; gap:6px; align-items:center}
+  .vcat .car{font-size:9px; transition:transform .2s ease; opacity:.7}
+  .vcat[aria-expanded="true"] .car{transform:rotate(180deg)}
+  .vcat[aria-expanded="true"]{background:rgba(255,255,255,.1); color:var(--ink)}
+  .vcat.on{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  .vcat.now:not(.on){border-color:var(--accent); color:var(--accent)}
+  .vmenu{display:flex; gap:6px; flex-wrap:wrap; background:var(--well); border:1px solid var(--line); border-radius:14px; padding:10px; animation:drop .18s ease}
+  @keyframes drop{from{opacity:0; transform:translateY(-4px)}}
+
+  /* era dial */
+  .era{display:flex; flex-direction:column; gap:10px}
+  .era-top{display:flex; gap:8px; align-items:center}
+  .era-top .addlang{flex:1; min-width:0}
+  .lchip.any{border-style:dashed}
+  .lchip.any[aria-pressed="true"]{border-style:solid}
+  .dial{padding:4px 10px 0; transition:opacity .2s ease}
+  .dial.off{opacity:.45}
+  .dial input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:26px; background:transparent; padding:0; border:0; margin:0; cursor:pointer}
+  .dial input[type=range]::-webkit-slider-runnable-track{height:6px; border-radius:3px; background:repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 10px), var(--well); border:1px solid var(--line)}
+  .dial input[type=range]::-moz-range-track{height:6px; border-radius:3px; background:repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 10px), var(--well); border:1px solid var(--line)}
+  .dial input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:22px; height:26px; margin-top:-11px; border-radius:6px; background:var(--accent); box-shadow:0 0 0 3px rgba(0,0,0,.25), 0 0 14px var(--accent)}
+  .dial input[type=range]::-moz-range-thumb{width:22px; height:26px; border:0; border-radius:6px; background:var(--accent); box-shadow:0 0 0 3px rgba(0,0,0,.25), 0 0 14px var(--accent)}
+  .dial.off input[type=range]::-webkit-slider-thumb{background:var(--faint); box-shadow:none}
+  .dial.off input[type=range]::-moz-range-thumb{background:var(--faint); box-shadow:none}
+  .ticks{position:relative; height:22px; margin-top:4px}
+  .ticks button{position:absolute; top:0; transform:translateX(-50%); background:none; border:0; padding:2px 4px; font-family:var(--mono); font-size:11px; font-weight:600; color:var(--faint); letter-spacing:.02em}
+  .ticks button.on{color:var(--accent)}
+  .ticks button:hover{color:var(--ink)}
+
+  /* spinning CD */
+  .cdwrap{grid-column:3; grid-row:1 / span 2; align-self:center; display:flex; flex-direction:column; align-items:center; gap:8px; --cd:96px}
+  .cdbox{position:relative; width:var(--cd); height:var(--cd)}
+  .cd{position:absolute; inset:0; border-radius:50%; will-change:transform;
+      background:
+        repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.07) 0 1px, transparent 1px 3px),
+        conic-gradient(from 20deg, #c3ccd7, #f3f5f8 9%, #b9e3ff 17%, #e9d6ff 25%, #dfe5ec 33%, #98a4b3 46%, #f1f3f6 56%, #ffe3b8 64%, #c8f0dc 72%, #aeb8c4 82%, #eef1f4 92%, #c3ccd7);
+      box-shadow:0 10px 26px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.35)}
+  .cd img{position:absolute; left:28%; top:28%; width:44%; height:44%; border-radius:50%; object-fit:cover; background:var(--accent); box-shadow:0 0 0 2px rgba(0,0,0,.25)}
+  .cd .hole{position:absolute; left:45%; top:45%; width:10%; height:10%; border-radius:50%; background:#0d0f16; box-shadow:0 0 0 2px rgba(255,255,255,.55)}
+  .shine{position:absolute; inset:0; border-radius:50%; pointer-events:none;
+         background:linear-gradient(125deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 32%, rgba(255,255,255,0) 62%, rgba(255,255,255,.22) 78%, rgba(255,255,255,0) 92%)}
+  .cdlabel{font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); text-align:center; max-width:110px; line-height:1.3}
+  .vibe-note{font-family:var(--mono); font-size:11.5px; color:var(--dim)}
+
+  /* player */
+  .player{position:relative; aspect-ratio:16/9; width:100%; max-width:100%; border-radius:16px; overflow:hidden; background:rgba(0,0,0,.45); display:grid; place-items:center; border:1px solid var(--line)}
+  .player > div, .player iframe{width:100%; height:100%}
+  .player .empty{color:var(--dim); font-family:var(--mono); font-size:13px; text-align:center; padding:20px; line-height:1.6}
+  .bigplay{position:absolute; font-size:20px; padding:16px 32px; border-radius:999px; box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .unmute{position:absolute; left:50%; bottom:14px; transform:translateX(-50%); box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .between{position:absolute; inset:0; display:grid; place-items:center; background:rgba(8,10,16,.72); font-family:var(--mono); font-size:13px; color:var(--accent); letter-spacing:.08em; text-align:center; line-height:1.7}
+
+  /* now playing */
+  .np{display:grid; grid-template-columns:64px minmax(0,1fr) auto; gap:14px; align-items:center}
+  .np img{width:64px; height:64px; object-fit:cover; border-radius:12px; background:var(--well); display:block}
+  .np .meta{display:flex; flex-direction:column; gap:3px; min-width:0}
+  .np .t{font-weight:700; font-size:17px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .np .c{font-family:var(--mono); font-size:12px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .eq{display:inline-flex; gap:2px; align-items:flex-end; height:12px; margin-right:6px; vertical-align:-1px}
+  .eq i{width:3px; background:var(--accent); height:30%; border-radius:1px}
+  body.playing .eq i{animation:eq .9s ease-in-out infinite}
+  .eq i:nth-child(2){animation-delay:-.3s} .eq i:nth-child(3){animation-delay:-.6s} .eq i:nth-child(4){animation-delay:-.15s}
+  @keyframes eq{0%,100%{height:25%}50%{height:100%}}
+  .rate{display:flex; gap:6px}
+  .rate button{width:40px; height:40px; padding:0; border-radius:50%; font-size:17px; display:grid; place-items:center}
+  .rate button.on{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  #dislikeBtn.on{background:var(--bad); color:#fff; border-color:var(--bad)}
+
+  /* progress */
+  .progress{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; font-family:var(--mono); font-size:11.5px; color:var(--dim); font-variant-numeric:tabular-nums}
+  .bar{height:6px; border-radius:3px; background:var(--well); position:relative; cursor:pointer; border:1px solid var(--line)}
+  .bar span{position:absolute; inset:0 auto 0 0; width:0; background:var(--accent); border-radius:3px}
+
+  .controls{display:grid; grid-template-columns:1fr 1.4fr 1fr; gap:8px}
+  #playBtn{font-size:16px}
+
+  .extras{display:flex; gap:14px; align-items:center; flex-wrap:wrap; justify-content:space-between}
+  .vol{display:flex; align-items:center; gap:10px; flex:1; min-width:180px}
+  .vol input{padding:0; height:4px; accent-color:var(--accent); background:none; border:0}
+  .sleep{display:flex; align-items:center; gap:8px}
+  .sleep b{font-family:var(--mono); font-size:12px; color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums}
+
+  .msg{font-family:var(--mono); font-size:12px; color:var(--accent); min-height:1em}
+
+  /* log: played + liked */
+  .log{display:flex; flex-direction:column; gap:10px; min-height:0}
+  .logbar{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
+  .likedplay{padding:8px 14px; font-size:13px; border-radius:10px}
+  .likedplay.on{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+  .tabs{display:flex; gap:4px; background:var(--well); border:1px solid var(--line); border-radius:12px; padding:3px; align-self:flex-start}
+  .tabs button{background:transparent; color:var(--dim); padding:7px 14px; border-radius:9px; font-size:13px}
+  .tabs button.on{background:rgba(255,255,255,.14); color:var(--ink)}
+  .list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; max-height:380px; overflow-y:auto}
+  .list li{display:grid; grid-template-columns:56px minmax(0,1fr) auto; gap:12px; align-items:center; padding:7px; border-radius:12px; cursor:pointer}
+  .list li:hover{background:var(--well)}
+  .list img{width:56px; height:36px; object-fit:cover; border-radius:7px; background:var(--well); display:block}
+  .list .lt{font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .list .lb{font-family:var(--mono); font-size:11px; color:var(--faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .list .tag{font-family:var(--mono); font-size:10px; letter-spacing:.06em; color:var(--dim); border:1px solid var(--line); border-radius:999px; padding:3px 8px; white-space:nowrap}
+  .list .none{cursor:default; color:var(--faint); font-family:var(--mono); font-size:12px; display:block; padding:14px 7px}
+  .list .none:hover{background:none}
+
+  details{font-size:13px; color:var(--dim); border-top:1px solid var(--line); padding-top:14px}
+  summary{cursor:pointer; font-family:var(--mono); letter-spacing:.08em; text-transform:uppercase; font-size:11px}
+  details .row{display:flex; gap:8px; margin-top:10px}
+  details p{margin:10px 0 0; line-height:1.5}
+
+  @media (prefers-reduced-motion: reduce){ #sky{display:none} .dot.live, body.playing .eq i, .scan.busy .ring{animation:none} }
+  @media (max-width:440px){
+    .seg{grid-template-columns:1fr}
+    .readout{gap:4px 12px}
+    .cdwrap{--cd:70px}
+    .cdlabel{font-size:9.5px; max-width:84px}
+    .tune{flex-direction:column}
+    .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .np{grid-template-columns:52px minmax(0,1fr) auto} .np img{width:52px; height:52px}
+  }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<main class="console">
+  <header class="brand">
+    <h1>Place <em>Radio</em></h1>
+    <span class="onair"><span class="dot" id="dot"></span><span id="freq">OFF AIR</span></span>
+  </header>
+
+  <form class="tune" id="tuneForm">
+      <label for="city" hidden>City</label>
+      <input id="city" placeholder="Tune into a city… Lubbock, Dhaka, Tokyo" autocomplete="off" value="Lubbock">
+      <button type="submit" id="tuneBtn">Tune in</button>
+    </form>
+
+  <section class="readout">
+    <div class="temp" id="temp">--°</div>
+    <div class="place" id="place">Pick a city</div>
+    <div class="cond" id="cond">Live weather picks the vibe</div>
+    <div class="cdwrap" aria-hidden="true">
+      <div class="cdbox">
+        <div class="cd" id="cd"><img id="cdArt" alt=""><span class="hole"></span></div>
+        <span class="shine"></span>
+      </div>
+      <span class="cdlabel" id="cdVibe">Tuning…</span>
+    </div>
+  </section>
+
+  <div class="mood"><span class="modetag" id="moodMode"></span><span class="moodq" id="moodQ"></span></div>
+
+  <div class="player" id="playerWrap">
+      <div class="empty" id="empty">Tuning in…</div>
+      <button id="bigPlay" class="bigplay" hidden>▶ Play</button>
+      <div id="yt" hidden></div>
+      <button id="unmute" class="unmute" hidden>Tap for sound</button>
+      <div class="between" id="between" hidden></div>
+    </div>
+
+  <div class="np" id="np" hidden>
+      <img id="npThumb" alt="">
+      <div class="meta">
+        <span class="t" id="npTitle"></span>
+        <span class="c"><span class="eq"><i></i><i></i><i></i><i></i></span><span id="npChan"></span></span>
+      </div>
+      <div class="rate">
+        <button class="ghost" id="likeBtn" title="Like this song" aria-label="Like">♥</button>
+        <button class="ghost" id="dislikeBtn" title="Never play this song again" aria-label="Dislike">✕</button>
+      </div>
+    </div>
+
+  <div class="progress">
+      <span id="tNow">0:00</span>
+      <div class="bar" id="bar" title="Jump to a spot"><span id="barFill"></span></div>
+      <span id="tEnd">0:00</span>
+    </div>
+
+  <div class="controls">
+      <button class="ghost" id="prevBtn" disabled>⏮ Prev</button>
+      <button id="playBtn" disabled>▶ Play</button>
+      <button class="ghost" id="nextBtn" disabled>Skip ⏭</button>
+    </div>
+
+  <div class="extras">
+      <label class="vol" for="vol"><span class="label">Vol</span><input id="vol" type="range" min="0" max="100" value="80"></label>
+      <div class="sleep">
+        <label class="label" for="sleepSel">Sleep</label>
+        <select id="sleepSel">
+          <option value="0">Off</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">60 min</option>
+          <option value="end">End of song</option>
+        </select>
+        <b id="sleepLeft"></b>
+      </div>
+    </div>
+  <div class="msg" id="msg" role="status"></div>
+
+  <div class="section-head">
+    <h2>Your station</h2>
+    <p>Pick the music, the vibe and your cities. The weather keeps steering the mood.</p>
+  </div>
+
+  <section class="music">
+      <div class="preset-tools"><span class="label">Music</span><span class="vibe-note">The weather still picks the mood</span></div>
+      <div class="seg" id="genreSeg" role="radiogroup" aria-label="Music">
+        <button type="button" role="radio" data-g="international">International hits<small>Global chart songs</small></button>
+        <button type="button" role="radio" data-g="billboard">Top Billboard hits<small>US chart songs</small></button>
+        <button type="button" role="radio" data-g="local">Local<small id="localSmall">Songs from the city's country</small></button>
+      </div>
+      <div class="sub" id="localBox" hidden></div>
+    </section>
+
+  <section class="langs" id="langSection">
+      <div class="preset-tools"><span class="label">Languages</span><span><span class="vibe-note" id="langNote"></span> &nbsp;<button class="linkbtn" id="editLangs" type="button">Edit</button></span></div>
+      <div class="vibe-row" id="langRow"></div>
+      <div class="sub" id="langEdit" hidden>
+        <div class="preset-tools"><span class="label">Your preferred languages</span><span class="vibe-note" id="langCount"></span></div>
+        <div class="vibe-row" id="myLangRow"></div>
+        <form class="addlang" id="addLangForm">
+          <label for="langInput" hidden>Add a language</label>
+          <input id="langInput" placeholder="Type a language… e.g. Nepali" autocomplete="off">
+          <button class="ghost" type="submit">Add</button>
+        </form>
+        <div class="vibe-row" id="langSuggest"></div>
+      </div>
+    </section>
+
+  <section class="era">
+      <div class="preset-tools"><span class="label">Era</span><span class="vibe-note" id="eraNote">Any era plays</span></div>
+      <div class="era-top">
+        <button class="lchip any" id="eraAuto" type="button">Auto</button>
+        <form class="addlang" id="addEraForm">
+          <label for="eraInput" hidden>Specific year</label>
+          <input id="eraInput" placeholder="Specific year… e.g. 2016" inputmode="numeric" autocomplete="off" maxlength="4">
+          <button class="ghost" type="submit">Set</button>
+        </form>
+      </div>
+      <div class="dial" id="dial">
+        <label for="eraSlider" hidden>Decade</label>
+        <input type="range" id="eraSlider" min="0" max="6" step="1" value="3">
+        <div class="ticks" id="eraTicks"></div>
+      </div>
+    </section>
+
+  <section class="vibes">
+      <div class="preset-tools"><span class="label">Vibe</span><span class="vibe-note" id="vibeNote"></span></div>
+      <div class="vcats" id="vibeCats"></div>
+      <div class="vmenu" id="vibeMenu" hidden></div>
+    </section>
+
+  <section class="presets" id="presets">
+      <div class="preset-tools">
+        <span class="label">Stations</span>
+        <span>
+          <button class="linkbtn" id="saveStation" type="button">+ Save this city</button>
+          &nbsp;·&nbsp;
+          <button class="linkbtn" id="editStations" type="button">Edit</button>
+        </span>
+      </div>
+      <div class="preset-row" id="presetRow"></div>
+    </section>
+
+  <section class="weather">
+    <div class="preset-tools"><span class="label">Weather details</span><span class="vibe-note" id="wdPlace"></span></div>
+    <div class="stats">
+      <div class="stat"><span class="label">Feels</span><b id="sFeels">--</b></div>
+      <div class="stat"><span class="label">Wind</span><b id="sWind">--</b></div>
+      <div class="stat"><span class="label">Humidity</span><b id="sHum">--</b></div>
+      <div class="stat"><span class="label" id="sSunLbl">Sunset</span><b id="sSun">--</b></div>
+    </div>
+    <div class="hours" id="hours"></div>
+    <div class="scan" id="scan"><span class="ring"></span><span id="scanTxt">Rescans the sky before every song</span></div>
+  </section>
+
+  <section class="log">
+      <div class="logbar">
+        <div class="tabs" role="tablist">
+          <button class="on" id="tabPlayed" role="tab" aria-selected="true">Played</button>
+          <button id="tabLiked" role="tab" aria-selected="false">Liked</button>
+        </div>
+        <button class="ghost likedplay" id="likedPlay" type="button">▶ Play liked</button>
+      </div>
+      <ul class="list" id="logList"></ul>
+    </section>
+
+  <details id="keyBox">
+      <summary>Optional: YouTube API key</summary>
+      <div class="row">
+        <input id="apiKey" type="password" placeholder="Paste key (saved in this browser only)">
+        <button class="ghost" id="saveKey" type="button">Save</button>
+      </div>
+      <p>You don't need this. Songs already come from YouTube as a guest. A key from Google Cloud Console (YouTube Data API v3) just makes searching more reliable.</p>
+    </details>
+</main>
+
+<script>
+/* ============ VIBE TABLE: the "algorithm" ============ */
+const VIBES = {
+  sunny_hot:  {label:"Sunshine heat", sky:["#1f7fd1","#ffc76b"], accent:"#ffb347", fx:"sun",
+               q:["summer hits upbeat","feel good pop songs","sunny day playlist songs","beach vibes songs","summer dance hits","tropical pop songs"]},
+  sunny_mild: {label:"Golden day",    sky:["#3d8be0","#f6d9a0"], accent:"#ffcf5a", fx:"sun",
+               q:["happy indie pop songs","road trip songs","good mood songs","feel good acoustic","sunny afternoon songs","upbeat indie songs"]},
+  sunny_cold: {label:"Crisp & bright",sky:["#4a90d9","#dfeaf5"], accent:"#9fd3ff", fx:"sun",
+               q:["indie folk morning songs","bright acoustic songs","fresh morning playlist","folk pop songs","uplifting acoustic songs"]},
+  clear_night:{label:"Starry night",  sky:["#0b1026","#2a2a5a"], accent:"#c7a6ff", fx:"stars",
+               q:["late night r&b songs","night drive songs","chill night vibes songs","midnight city pop","synthwave night songs","slow r&b songs"]},
+  cloudy:     {label:"Grey sky mood", sky:["#4f5b6b","#a3acb8"], accent:"#d6e0ea", fx:"clouds",
+               q:["chill indie songs","bedroom pop songs","cloudy day playlist songs","mellow alternative songs","soft indie songs"]},
+  fog:        {label:"Foggy dream",   sky:["#6d7380","#c9ccd2"], accent:"#e9ecf2", fx:"fog",
+               q:["dream pop songs","ambient chill songs","shoegaze songs","ethereal songs","slowcore songs"]},
+  drizzle:    {label:"Soft drizzle",  sky:["#3e4a5c","#7d8a9c"], accent:"#9ec5ff", fx:"drizzle",
+               q:["lofi rainy day songs","soft acoustic rain songs","cozy coffee shop songs","jazzy lofi songs","gentle piano songs"]},
+  rain:       {label:"Rainy day",     sky:["#26303f","#56657a"], accent:"#7fb2ff", fx:"rain",
+               q:["sad songs rainy day","rainy day playlist songs","lofi rain songs","melancholy indie songs","heartbreak ballads"]},
+  storm:      {label:"Thunderstorm",  sky:["#11141c","#3a3550"], accent:"#ffe14d", fx:"storm",
+               q:["dramatic rock songs","phonk songs","epic intense songs","dark alternative songs","hard rock classics"]},
+  golden_hour:   {label:"Golden hour",    sky:["#5b4a8a","#ffb27a"], accent:"#ffb27a", fx:"golden", q:[]},
+  heatwave:      {label:"Heatwave",       sky:["#d9772b","#ffd98a"], accent:"#ff9a3c", fx:"heat",   q:[]},
+  after_midnight:{label:"After midnight", sky:["#05060f","#141833"], accent:"#8fa8ff", fx:"stars",  q:[]},
+  cloudy_night:  {label:"Cloudy night",   sky:["#151a26","#343c4f"], accent:"#b8c4dc", fx:"clouds", q:[]},
+  rain_night:    {label:"Rainy night",    sky:["#0d1320","#2a3448"], accent:"#6fa0ff", fx:"rain",   q:[]},
+  windy:         {label:"Windy day",      sky:["#3f6f8f","#b9d4dc"], accent:"#7ee0d0", fx:"wind",   q:[]},
+  humid:         {label:"Sticky & humid", sky:["#3b6b5a","#e3c98a"], accent:"#ffd27a", fx:"haze",   q:[]},
+  dry:           {label:"Desert dry",     sky:["#b8683a","#f2d39b"], accent:"#ffb36b", fx:"dust",   q:[]},
+  showers:       {label:"Passing showers",sky:["#4f6f92","#c7cfa8"], accent:"#a8e0ff", fx:"showers",q:[]},
+  ice_rain:      {label:"Ice rain",       sky:["#2c3a4c","#9fb2c4"], accent:"#c6ecff", fx:"rain",   q:[]},
+  hail:          {label:"Hailstorm",      sky:["#1a1d27","#4c4e60"], accent:"#e6f0ff", fx:"hail",   q:[]},
+  blizzard:      {label:"Blizzard",       sky:["#9aa9bb","#eef2f7"], accent:"#ffffff", fx:"blizzard",q:[]},
+  freezing:      {label:"Deep freeze",    sky:["#3a5f8f","#d8ecff"], accent:"#bfe6ff", fx:"frost",  q:[]},
+  snow:       {label:"Snow day",      sky:["#8ea3bd","#e8eef6"], accent:"#ffffff", fx:"snow",
+               q:["cozy winter songs","winter indie songs","snowy day jazz","warm acoustic winter songs","fireplace jazz songs"]},
+};
+
+/* mood words that steer the chart searches for each weather vibe */
+const MOODS = {
+  sunny_hot:["summer","upbeat dance","party"], sunny_mild:["feel good","happy","road trip"], sunny_cold:["uplifting","acoustic","fresh"],
+  clear_night:["night drive","r&b","chill night"], cloudy:["chill","mellow","indie"], fog:["dreamy","atmospheric","slow"],
+  drizzle:["chill acoustic","soft","cozy"], rain:["sad","emotional","breakup"], storm:["rock","intense","hype"], snow:["cozy","winter","warm acoustic"],
+  golden_hour:["golden hour","dreamy","romantic"], heatwave:["heatwave","slow summer","tropical"], after_midnight:["after hours","sleepy","dark r&b"],
+  cloudy_night:["moody","late night indie","dark pop"], rain_night:["late night lofi","slow r&b","rainy night"], windy:["restless","driving","windswept"],
+  humid:["sultry r&b","lazy summer","slow jams"], dry:["desert rock","country road","western"], showers:["indie pop","upbeat acoustic","feel good"],
+  ice_rain:["melancholy","piano ballad","haunting"], hail:["heavy rock","metal","hype"], blizzard:["epic","dramatic","power ballad"], freezing:["piano","quiet acoustic","calm"],
+};
+/* main language for each country, used by Local mode */
+const LANG_BY_CC = {BD:"Bangla",IN:"Hindi",PK:"Urdu",NP:"Nepali",LK:"Sinhala",US:"English",GB:"English",CA:"English",AU:"English",NZ:"English",IE:"English",
+  NG:"Afrobeats",GH:"Afrobeats",ZA:"South African",KE:"Swahili",TZ:"Swahili",MX:"Spanish",ES:"Spanish",AR:"Spanish",CO:"Spanish",CL:"Spanish",PE:"Spanish",
+  VE:"Spanish",CU:"Spanish",PR:"Spanish",BR:"Portuguese",PT:"Portuguese",FR:"French",BE:"French",DE:"German",AT:"German",CH:"German",IT:"Italian",NL:"Dutch",
+  SE:"Swedish",NO:"Norwegian",DK:"Danish",FI:"Finnish",PL:"Polish",GR:"Greek",RU:"Russian",UA:"Ukrainian",TR:"Turkish",IR:"Persian",SA:"Arabic",AE:"Arabic",
+  EG:"Arabic",MA:"Arabic",JO:"Arabic",LB:"Arabic",IQ:"Arabic",JP:"Japanese",KR:"Korean",CN:"Mandarin",TW:"Mandarin",HK:"Cantonese",TH:"Thai",VN:"Vietnamese",
+  PH:"Tagalog",ID:"Indonesian",MY:"Malay",SG:"English"};
+const LANGS = ["English","Spanish","Bangla","Hindi","Urdu","Arabic","Korean","Japanese","Mandarin","French","Portuguese","Turkish","Punjabi","Tamil","Tagalog","German","Italian","Russian","Indonesian","Swahili"];
+const rawGenre = (()=>{ try{ return localStorage.getItem("pr_genre"); }catch(e){ return null; } })();
+/* empty list = any language can play */
+let langs = (()=>{ try{
+  const v = JSON.parse(localStorage.getItem("pr_langs2"));
+  if(Array.isArray(v)) return v;
+  return rawGenre === "language" ? (JSON.parse(localStorage.getItem("pr_langs")) || []) : [];   // carry over the old Preferred language picks
+}catch(e){ return []; } })();
+
+/* writing systems, so a title in a script you didn't pick gets skipped */
+const SCRIPT_OF = {Hindi:"deva",Nepali:"deva",Marathi:"deva",Bangla:"beng",Bengali:"beng",Assamese:"beng",Urdu:"arab",Arabic:"arab",Persian:"arab",Farsi:"arab",Pashto:"arab",Kurdish:"arab",
+  Korean:"hang",Japanese:"jpan",Mandarin:"hani",Chinese:"hani",Cantonese:"hani",Russian:"cyrl",Ukrainian:"cyrl",Bulgarian:"cyrl",Serbian:"cyrl",Kazakh:"cyrl",Greek:"grek",Thai:"thai",
+  Tamil:"taml",Telugu:"telu",Punjabi:"guru",Gujarati:"gujr",Kannada:"knda",Malayalam:"mlym",Sinhala:"sinh",Hebrew:"hebr",Amharic:"ethi",Georgian:"geor",Armenian:"armn",Khmer:"khmr",Lao:"laoo",Burmese:"mymr"};
+const SCRIPT_RE = {deva:/[\u0900-\u097F]/, beng:/[\u0980-\u09FF]/, arab:/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/, hang:/[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]/,
+  jpan:/[\u3040-\u30FF]/, hani:/[\u3400-\u4DBF\u4E00-\u9FFF]/, cyrl:/[\u0400-\u04FF]/, grek:/[\u0370-\u03FF]/, thai:/[\u0E00-\u0E7F]/, taml:/[\u0B80-\u0BFF]/, telu:/[\u0C00-\u0C7F]/,
+  guru:/[\u0A00-\u0A7F]/, gujr:/[\u0A80-\u0AFF]/, knda:/[\u0C80-\u0CFF]/, mlym:/[\u0D00-\u0D7F]/, sinh:/[\u0D80-\u0DFF]/, hebr:/[\u0590-\u05FF]/, ethi:/[\u1200-\u137F]/,
+  geor:/[\u10A0-\u10FF]/, armn:/[\u0530-\u058F]/, khmr:/[\u1780-\u17FF]/, laoo:/[\u0E80-\u0EFF]/, mymr:/[\u1000-\u109F]/};
+function okLang(s){
+  const ls = activeLangs();
+  if(!ls.length) return true;
+  const allowed = new Set(ls.map(l => SCRIPT_OF[l]).filter(Boolean));
+  if(allowed.has("jpan")) allowed.add("hani");               // Japanese titles mix kana and kanji
+  const text = (s.title||"") + " " + (s.by||"");
+  for(const [sc, re] of Object.entries(SCRIPT_RE)) if(!allowed.has(sc) && re.test(text)) return false;
+  return true;
+}
+/* language of each backup song, so the backup list respects your picks too */
+const CRATE_LANG = {kJQP7kiw5Fk:"Spanish", "9bZkp7q19f0":"Korean", "7zp1TbLFPp8":"Spanish"};
+/* ERA: empty list = any era (mostly current hits, like before) */
+const ERAS = ["60s","70s","80s","90s","2000s","2010s","2020s"];
+/* one era at a time: [] = Auto, ["80s"] from the slider, or ["2016"] from the year box */
+let eras = (()=>{ try{ return (JSON.parse(localStorage.getItem("pr_eras")) || []).slice(0,1); }catch(e){ return []; } })();
+function eraDecade(e){                       // "2016" → "2010s", "1985" → "80s"
+  if(!/^\d{4}$/.test(e)) return e;
+  const d = Math.floor(+e/10)*10;
+  return d >= 2000 ? d + "s" : String(d).slice(2) + "s";
+}
+/* decade of each backup song, so the backup list respects your era too */
+const CRATE_ERA = {
+  fJ9rUzIMcZQ:"70s", tH2w6Oxx0kQ:"70s", "09839DpTctU":"70s",
+  djV11Xbc914:"80s", FTQbiNvZqaY:"80s", YkADj0TPrJA:"80s", E8gmARGvPlI:"80s",
+  v2AC41dglnM:"90s", aAkMkVFwAoo:"90s", XFkzRNyygfk:"90s", n4RjJKxsamQ:"90s", "6Whgn_iE5uc":"90s",
+  CvBfHwUxHIk:"2000s", kXYiU_JCYtU:"2000s", "0J2QdDbelmY":"2000s", yKNxeF4KMsY:"2000s", dvgZkm1xWPE:"2000s", tO4dxvguQDk:"2000s",
+  gdZLi9oWNZg:"2020s", WcIcVapfqXw:"2020s"   // everything else in the backup list is from the 2010s
+};
+const crateOk = s => (!activeLangs().length || activeLangs().includes(CRATE_LANG[s.id] || "English"))
+                  && (!eras.length || eras.map(eraDecade).includes(CRATE_ERA[s.id] || "2010s"));
+const MAX_LANGS = 5;
+/* your preferred languages (up to 5); `langs` is the subset that's switched on (empty = any language) */
+let myLangs = (()=>{ try{ const v = JSON.parse(localStorage.getItem("pr_mylangs")); if(Array.isArray(v) && v.length) return v.slice(0, MAX_LANGS); }catch(e){}
+  return langs.length ? langs.slice(0, MAX_LANGS) : ["English","Spanish"]; })();
+langs = langs.filter(l => myLangs.includes(l));
+/* languages only steer International hits; Billboard and Local ignore them */
+function activeLangs(){ return genre === "international" ? langs : []; }
+/* suggestions while editing, with other names people type */
+const LANG_ALL = ["English","Spanish","Bangla","Hindi","Urdu","Arabic","Korean","Japanese","Mandarin","Cantonese","French","Portuguese","Turkish","Punjabi","Tamil","Telugu",
+  "Marathi","Gujarati","Kannada","Malayalam","Nepali","Sinhala","Tagalog","German","Italian","Russian","Ukrainian","Polish","Dutch","Swedish","Norwegian","Danish","Finnish",
+  "Greek","Persian","Hebrew","Thai","Vietnamese","Indonesian","Malay","Swahili","Amharic","Somali","Yoruba","Zulu","Afrikaans","Romanian","Hungarian","Czech","Serbian","Croatian","Pashto","Kurdish"];
+const LANG_ALIAS = {Bengali:"Bangla", Chinese:"Mandarin", Farsi:"Persian", Filipino:"Tagalog", Panjabi:"Punjabi", Castilian:"Spanish", Hangul:"Korean"};
+
+function localInfo(){
+  const p = state.place; if(!p) return null;
+  return {country:p.country || p.country_code, cc:p.country_code, region:p.admin1, lang:LANG_BY_CC[p.country_code] || ""};
+}
+const GENRES = {
+  international: {label:"International hits", short:"International",
+    make:m => [`international ${m} hits`,`global top ${m} songs`,`world hits ${m} songs`,`${m} hits spotify global top 50`]},
+  billboard: {label:"Top Billboard hits", short:"Billboard",
+    make:m => [`billboard hot 100 ${m} songs`,`top 40 ${m} hits`,`billboard ${m} pop hits`,`${m} hits english top charts`]},
+  local: {label:"Local", short:"Local",
+    make:m => {
+      const L = localInfo(); if(!L) return [`${m} songs`];
+      const word = {US:"American",GB:"British",CA:"Canadian",AU:"Australian",NZ:"New Zealand",IE:"Irish"}[L.cc] || L.country;
+      const out = [`${word} ${m} songs`, `top ${word} ${m} hits`];
+      if(L.lang && L.lang !== "English") out.push(`${L.lang} ${m} songs`, `best ${L.lang} ${m} songs`, `${L.lang} ${m} hits`);
+      if(L.cc === "US" && L.region) out.push(`${L.region} ${m} songs`);
+      return out;
+    }},
+};
+/* searches when you've picked languages: music mode + language + weather mood */
+const LANG_Q = {
+  international: (m,l) => l === "English" ? [`english ${m} hits`, `top english ${m} songs`, `global ${m} hits english`]
+                                          : [`${l} ${m} hits`, `top ${l} ${m} songs`, `popular ${l} ${m} songs`],
+  billboard:     (m,l) => l === "English" ? [`billboard hot 100 ${m} songs`, `top 40 ${m} hits`, `billboard ${m} pop hits`]
+                                          : [`billboard ${l} ${m} songs`, `${l} chart ${m} hits`, `top ${l} ${m} hits billboard`],
+  local:         (m,l) => {
+    const L = localInfo(); if(!L) return [`${l} ${m} songs`];
+    const word = {US:"American",GB:"British",CA:"Canadian",AU:"Australian",NZ:"New Zealand",IE:"Irish"}[L.cc] || L.country;
+    if(l === L.lang || (l === "English" && L.lang === "English")) return GENRES.local.make(m);
+    return [`${word} ${m} songs in ${l}`, `${word} ${l} ${m} songs`, `top ${word} ${l} ${m} hits`];
+  },
+};
+let genre = rawGenre || "international";
+if(!GENRES[genre]) genre = "international";
+function queriesFor(vibe){
+  const ls = activeLangs();
+  const base = ls.length ? MOODS[vibe].flatMap(m => ls.flatMap(l => LANG_Q.international(m,l)))
+                            : MOODS[vibe].flatMap(m => GENRES[genre].make(m));
+  if(!eras.length) return base;
+  return base.flatMap(q => eras.map(e => /^\d{4}$/.test(e) ? `${q} ${e}` : `${e} ${q}`));   // "80s billboard sad songs", "rainy day songs 2016"
+}
+/* which pool of searches we're on: changes when the mode, the country (Local) or the language picks change */
+function poolKey(){
+  const ctx = (genre === "local" && state.place ? state.place.country_code : "") + "|" + activeLangs().join(",") + "|" + eras.join(",");
+  return state.vibe + "|" + genre + "|" + ctx;
+}
+function modeText(){
+  if(typeof likedMode !== "undefined" && likedMode) return `♥ Liked songs · ${likes.length}`;
+  const bits = [GENRES[genre].short], ls = activeLangs();
+  if(ls.length) bits.push(ls.slice(0,2).join(", ") + (ls.length > 2 ? ` +${ls.length-2}` : ""));
+  if(eras.length) bits.push(eras[0]);
+  return bits.join(" · ");
+}
+
+const VIBE_GROUPS = [
+  ["Sun",          ["sunny_hot","sunny_mild","sunny_cold","golden_hour","heatwave"]],
+  ["Night",        ["clear_night","after_midnight","cloudy_night","rain_night"]],
+  ["Clouds & air", ["cloudy","fog","windy","humid","dry"]],
+  ["Rain & storms",["drizzle","showers","rain","ice_rain","storm","hail"]],
+  ["Snow & cold",  ["snow","blizzard","freezing"]],
+];
+
+/* THE ALGORITHM: weather code + temperature + wind (km/h) + humidity (%) + local hour + minutes to sunrise or sunset */
+function pickVibe(code, temp, isDay, wind=0, hum=50, hour=12, sunMins=999){
+  const snowing = [71,73,75,77,85,86].includes(code);
+  if([96,99].includes(code)) return "hail";
+  if(code===95) return "storm";
+  if(snowing && (wind >= 30 || [75,86].includes(code))) return "blizzard";
+  if(snowing) return "snow";
+  if([56,57,66,67].includes(code)) return "ice_rain";
+  if([61,63,65,80,81,82].includes(code)){
+    if(!isDay) return "rain_night";
+    if([80,81].includes(code)) return "showers";
+    return "rain";
+  }
+  if([51,53,55].includes(code)) return "drizzle";
+  if([45,48].includes(code)) return "fog";
+  if(wind >= 30) return "windy";
+  if(sunMins <= 45 && code <= 2) return "golden_hour";
+  if(temp >= 35) return "heatwave";
+  if(temp <= -5) return "freezing";
+  if(code===3) return isDay ? "cloudy" : "cloudy_night";
+  if(!isDay) return (hour >= 0 && hour < 5) ? "after_midnight" : "clear_night";
+  if(hum >= 75 && temp >= 22) return "humid";
+  if(hum <= 20) return "dry";
+  if(code===2 && temp < 18) return "cloudy";
+  if(temp >= 28) return "sunny_hot";
+  if(temp <= 10) return "sunny_cold";
+  return "sunny_mild";
+}
+
+const WMO = {0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Rime fog",
+  51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",56:"Freezing drizzle",57:"Freezing drizzle",
+  61:"Light rain",63:"Rain",65:"Heavy rain",66:"Freezing rain",67:"Freezing rain",
+  71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",80:"Rain showers",81:"Rain showers",82:"Violent showers",
+  85:"Snow showers",86:"Heavy snow showers",95:"Thunderstorm",96:"Thunderstorm, hail",99:"Thunderstorm, hail"};
+function wIcon(code, day){
+  if([95,96,99].includes(code)) return "⛈️";
+  if([71,73,75,77,85,86].includes(code)) return "❄️";
+  if([61,63,65,66,67,80,81,82].includes(code)) return "🌧️";
+  if([51,53,55,56,57].includes(code)) return "🌦️";
+  if([45,48].includes(code)) return "🌫️";
+  if(code===3) return "☁️";
+  if(code===2) return day ? "⛅" : "☁️";
+  return day ? "☀️" : "🌙";
+}
+
+/* ============ STATE ============ */
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){try{return localStorage.getItem(k)}catch(e){return null}},
+  set(k,v){try{localStorage.setItem(k,v)}catch(e){}},
+  json(k,d){try{return JSON.parse(localStorage.getItem(k)) ?? d}catch(e){return d}},
+  put(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+let state = {place:null, vibe:null, weatherVibe:null, manualVibe:null, pool:[], usedQueries:{}, nowPlaying:null};
+let player = null, ytReady = false, busy = false, started = false, pending = null;
+const REPEAT_AFTER = 30;   // a song may only come back after 30 other songs have played
+
+let history  = store.json("pr_history", []);
+let likes    = store.json("pr_likes", []);
+let dislikes = store.json("pr_dislikes", []);
+let presets  = store.json("pr_presets", ["Lubbock","Dhaka","Tokyo","London","Reykjavik"]);
+let volume   = +(store.get("pr_vol") || 80);
+
+const songKey = s => (s.title||"").toLowerCase()
+  .replace(/\(.*?\)|\[.*?\]/g,"").replace(/official|music|video|lyrics?|audio|hd|4k|remaster(ed)?/g,"")
+  .replace(/[^a-z0-9]+/g," ").trim();
+const matches = (list, s) => { const k = songKey(s); return list.some(h => h.id === s.id || (k && h.key === k)); };
+const wasPlayed = s => matches(history, s);
+const isDisliked = s => matches(dislikes, s);
+const isLiked = s => s && likes.some(l => l.id === s.id);
+function remember(s){
+  history.push({id:s.id, key:songKey(s), title:s.title, by:s.by, len:s.len, vibe:state.vibe, genre, city:state.place ? state.place.name : ""});
+  if(history.length > 300) history = history.slice(-300);
+  store.put("pr_history", history);
+  renderLog();
+}
+const thumb = id => `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+const freqFor = p => (88 + (Math.abs(p.latitude*7+p.longitude*3)%20)).toFixed(1);
+const fmt = s => { s = Math.max(0, Math.floor(s||0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`; };
+
+$("apiKey").value = store.get("pr_key") || "";
+$("saveKey").onclick = () => { store.set("pr_key", $("apiKey").value.trim()); $("keyBox").open = false; say("Key saved."); };
+function say(t){ $("msg").textContent = t || ""; }
+
+/* ============ WEATHER (Open-Meteo, no key) ============ */
+async function findPlace(city){
+  const names = [city];
+  const spaced = city.replace(/([a-z])([A-Z])/g, "$1 $2");            // NewYork → New York
+  if(spaced !== city) names.unshift(spaced);
+  const results = [];
+  for(const n of names){
+    const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(n)}&count=10`).then(r=>r.json());
+    (g.results || []).forEach(r => results.push({...r, exact: r.name.toLowerCase().replace(/\s/g,"") === city.toLowerCase().replace(/\s/g,"")}));
+  }
+  if(!results.length) return null;
+  // prefer an exact name match, then the biggest city (so New York beats a village in Scotland)
+  results.sort((a,b) => (b.exact - a.exact) || ((b.population||0) - (a.population||0)));
+  return results[0];
+}
+function setScanning(on, txt){
+  $("scan").classList.toggle("busy", on);
+  $("scanTxt").textContent = txt;
+}
+async function scanWeather(){
+  const p = state.place;
+  setScanning(true, "Scanning the sky…");
+  const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.latitude}&longitude=${p.longitude}`+
+    `&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day`+
+    `&hourly=temperature_2m,weather_code,is_day&daily=sunrise,sunset&forecast_days=2&timezone=auto`).then(r=>r.json());
+  const c = w.current;
+  const localNow = (c.time||"").split("T")[1] || "";
+  $("temp").textContent = `${Math.round(c.temperature_2m)}°`;
+  $("wdPlace").textContent = `Next hours in ${p.name}`;
+  $("place").textContent = `${p.name}${p.admin1? ", "+p.admin1:""}, ${p.country_code}`;
+  $("cond").textContent = `${WMO[c.weather_code]||"Weather"} · ${Math.round(c.temperature_2m*9/5+32)}°F · local ${localNow}`;
+  $("sFeels").textContent = `${Math.round(c.apparent_temperature)}°`;
+  $("sWind").textContent = `${Math.round(c.wind_speed_10m)} km/h`;
+  $("sHum").textContent = `${Math.round(c.relative_humidity_2m)}%`;
+  if(w.daily){
+    const rise = w.daily.sunrise[0], set = w.daily.sunset[0];
+    const nextIsSet = c.time < set && c.time >= rise;
+    const tgt = nextIsSet ? set : (c.time < rise ? rise : w.daily.sunrise[1]);
+    $("sSunLbl").textContent = nextIsSet ? "Sunset" : "Sunrise";
+    $("sSun").textContent = (tgt||"").split("T")[1] || "--";
+  }
+  if(w.hourly){
+    const i0 = w.hourly.time.findIndex(t => t.slice(0,13) === c.time.slice(0,13));
+    const hrs = $("hours"); hrs.innerHTML = "";
+    for(let i = i0+1; i <= i0+6 && i < w.hourly.time.length; i++){
+      const d = document.createElement("div"); d.className = "hr";
+      const h = +w.hourly.time[i].slice(11,13);
+      d.innerHTML = `<span class="h">${h===0?"12a":h<12?h+"a":h===12?"12p":(h-12)+"p"}</span><span class="i">${wIcon(w.hourly.weather_code[i], w.hourly.is_day[i]===1)}</span><span class="tp">${Math.round(w.hourly.temperature_2m[i])}°</span>`;
+      hrs.append(d);
+    }
+  }
+  let sunMins = 999;
+  if(w.daily){
+    const now = new Date(c.time).getTime();
+    [w.daily.sunrise[0], w.daily.sunset[0], w.daily.sunrise[1]].filter(Boolean).forEach(x => {
+      sunMins = Math.min(sunMins, Math.abs(new Date(x).getTime() - now) / 60000);
+    });
+  }
+  const hour = +(c.time||"T12").split("T")[1].slice(0,2);
+  state.weatherVibe = pickVibe(c.weather_code, c.temperature_2m, c.is_day===1, c.wind_speed_10m, c.relative_humidity_2m, hour, sunMins);
+  const vibe = state.manualVibe || state.weatherVibe;
+  if(vibe !== state.vibe){            // weather (or your pick) changed: switch the vibe, start a fresh pool
+    state.vibe = vibe; state.pool = []; state.usedQueries[vibe] = state.usedQueries[vibe] || [];
+    applyVibe(vibe);
+  }
+  renderVibes();
+  const d = new Date();
+  setScanning(false, `Last scan ${d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})} · rescans before every song`);
+}
+
+async function tune(city){
+  say("Scanning the airwaves…");
+  let p;
+  try { p = await findPlace(city); }
+  catch(e){ say("Can't reach the internet from here. Open the file in Chrome or Safari, or host it on Netlify."); setScanning(false,"Offline"); return; }
+  if(!p){ say("Couldn't find that place. Try another spelling."); return; }
+  state.place = p; state.vibe = null; state.pool = [];
+  $("city").value = p.name;
+  $("freq").textContent = `${freqFor(p)} FM · ON AIR`;
+  $("dot").classList.add("live");
+  renderPresets(); renderGenre();
+  await playNext();
+}
+
+function applyVibe(key){
+  const v = VIBES[key];
+  const r = document.documentElement.style;
+  r.setProperty("--sky-top", v.sky[0]); r.setProperty("--sky-bot", v.sky[1]); r.setProperty("--accent", v.accent);
+  $("cdVibe").textContent = v.label;
+  setFx(v.fx);
+}
+
+/* ============ VIBE PICKER ============ */
+let openCat = null;
+function chooseVibe(key){
+  if(state.manualVibe === key){ openCat = null; renderVibes(); return; }
+  state.manualVibe = key; state.pool = []; openCat = null; renderVibes();
+  const name = key ? VIBES[key].label : "the weather's vibe";
+  $("vibeNote").textContent = key ? `Up next: ${VIBES[key].label}` : "Up next: back to the weather";
+  say(`${key ? name : "Auto"} starts with the next song. Hit Skip to switch now.`);
+  afterPrefChange();
+}
+/* changing a setting never cuts off the song that's playing: it applies to the next song (or Skip) */
+function afterPrefChange(){
+  if(!started && pending && state.place) playNext();   // nothing playing yet: just re-pick the song that's up first
+}
+function renderVibes(){
+  const cats = $("vibeCats"), menu = $("vibeMenu");
+  cats.innerHTML = "";
+  const auto = document.createElement("button"); auto.type = "button"; auto.className = "vcat"; auto.textContent = "Auto · weather";
+  if(!state.manualVibe) auto.classList.add("on");
+  auto.onclick = () => chooseVibe(null);
+  cats.append(auto);
+  VIBE_GROUPS.forEach(([name, keys]) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "vcat";
+    const picked = keys.includes(state.manualVibe);
+    b.textContent = picked ? `${name}: ${VIBES[state.manualVibe].label}` : name;
+    const car = document.createElement("span"); car.className = "car"; car.textContent = "▼"; b.append(car);
+    if(picked) b.classList.add("on");
+    if(keys.includes(state.weatherVibe)) b.classList.add("now");
+    b.setAttribute("aria-expanded", openCat === name);
+    b.onclick = e => { e.stopPropagation(); openCat = openCat === name ? null : name; renderVibes(); };
+    cats.append(b);
+  });
+  menu.innerHTML = "";
+  const grp = VIBE_GROUPS.find(g => g[0] === openCat);
+  menu.hidden = !grp;
+  if(grp) grp[1].forEach(k => {
+    const c = document.createElement("button"); c.type = "button"; c.className = "vchip"; c.textContent = VIBES[k].label;
+    if(state.manualVibe === k) c.classList.add("on");
+    if(state.weatherVibe === k) c.classList.add("now");
+    c.onclick = e => { e.stopPropagation(); chooseVibe(k); };
+    menu.append(c);
+  });
+  const wl = state.weatherVibe ? VIBES[state.weatherVibe].label : "";
+  $("vibeNote").textContent = state.manualVibe ? `Your pick · sky says ${wl}` : (wl ? `Sky says ${wl}` : "");
+}
+
+/* ============ MUSIC SWITCH ============ */
+function renderGenre(){
+  document.querySelectorAll("#genreSeg button").forEach(b => b.setAttribute("aria-checked", b.dataset.g === genre));
+  $("moodMode").textContent = modeText();
+  const L = localInfo();
+  $("localSmall").textContent = L ? `Songs from ${L.country}` : "Songs from the city's country";
+  $("localBox").hidden = genre !== "local";
+  if(genre === "local"){
+    $("localBox").innerHTML = "";
+    const p = document.createElement("div");
+    if(L){
+      p.append("Playing songs from ", Object.assign(document.createElement("b"),{textContent:L.country}));
+      if(L.lang && L.lang !== "English") p.append(" in ", Object.assign(document.createElement("b"),{textContent:L.lang}));
+      p.append(`, matched to the weather in ${state.place.name}. Tune into another city to hear its local music.`);
+    } else p.textContent = "Tune into a city and its local music plays, matched to its weather.";
+    $("localBox").append(p);
+  }
+  renderLangs(); renderEras();
+}
+/* ---------- ERA: Auto, a specific year, or the decade slider (one at a time) ---------- */
+(function buildTicks(){
+  const t = $("eraTicks");
+  ERAS.forEach((e, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = e;
+    b.style.left = `calc(11px + (100% - 22px) * ${i/(ERAS.length-1)})`;     // lines up with the slider thumb
+    b.onclick = () => setEra(e);
+    t.append(b);
+  });
+})();
+function renderEras(){
+  const e = eras[0] || "", isYear = /^\d{4}$/.test(e);
+  $("eraAuto").setAttribute("aria-pressed", !e);
+  $("dial").classList.toggle("off", !e || isYear);
+  const dec = isYear ? eraDecade(e) : e;
+  if(ERAS.includes(dec)) $("eraSlider").value = ERAS.indexOf(dec);
+  [...$("eraTicks").children].forEach(b => b.classList.toggle("on", !isYear && b.textContent === e));
+  if(isYear) $("eraInput").value = e; else if(document.activeElement !== $("eraInput")) $("eraInput").value = "";
+  $("eraNote").textContent = !e ? "Any era plays" : isYear ? `Only songs from ${e}` : `Only ${e} songs`;
+}
+function setEra(e){
+  const before = eras[0] || "";
+  eras = e ? [e] : [];
+  if((eras[0] || "") === before){ renderEras(); return; }
+  try{ localStorage.setItem("pr_eras", JSON.stringify(eras)); }catch(err){}
+  state.pool = []; renderGenre();
+  say(e ? `${/^\d{4}$/.test(e) ? "Songs from " + e : e + " songs"} from the next song on. Hit Skip to switch now.` : "Any era can play again from the next song.");
+  afterPrefChange();
+}
+$("eraAuto").onclick = () => setEra("");
+$("eraSlider").oninput = e => {                    // live preview while dragging
+  const v = ERAS[+e.target.value];
+  $("dial").classList.remove("off");
+  [...$("eraTicks").children].forEach(b => b.classList.toggle("on", b.textContent === v));
+  $("eraNote").textContent = `Only ${v} songs`;
+};
+$("eraSlider").onchange = e => setEra(ERAS[+e.target.value]);
+$("addEraForm").onsubmit = e => {
+  e.preventDefault();
+  const v = $("eraInput").value.trim();
+  const yr = +v, now = new Date().getFullYear();
+  if(!/^\d{4}$/.test(v) || yr < 1950 || yr > now){ say(`Type a year between 1950 and ${now}, like 2016.`); return; }
+  $("eraInput").blur(); setEra(v);
+};
+
+/* ---------- LANGUAGES: only for International hits; up to 5 preferred, edit with suggestions ---------- */
+let editingLangs = false;
+function renderLangs(){
+  $("langSection").hidden = genre !== "international";
+  const row = $("langRow"); row.innerHTML = "";
+  const any = document.createElement("button"); any.type = "button"; any.className = "lchip any"; any.textContent = "Any language";
+  any.setAttribute("aria-pressed", langs.length === 0);
+  any.onclick = () => { if(!langs.length) return; langs = []; saveLangs(); };
+  row.append(any);
+  myLangs.forEach(l => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "lchip"; b.textContent = l;
+    b.setAttribute("aria-pressed", langs.includes(l));
+    b.onclick = () => { langs = langs.includes(l) ? langs.filter(x => x !== l) : [...langs, l]; saveLangs(); };
+    row.append(b);
+  });
+  $("langNote").textContent = langs.length ? `Only ${langs.join(", ")}` : "Any language can play";
+  $("editLangs").textContent = editingLangs ? "Done" : "Edit";
+  $("langEdit").hidden = !editingLangs;
+  if(editingLangs) renderLangEdit();
+}
+function renderLangEdit(){
+  $("langCount").textContent = `${myLangs.length} of ${MAX_LANGS}`;
+  const mine = $("myLangRow"); mine.innerHTML = "";
+  myLangs.forEach(l => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "lchip"; b.setAttribute("aria-pressed","true");
+    b.textContent = l + "  ×"; b.title = "Remove " + l; b.setAttribute("aria-label", "Remove " + l);
+    b.onclick = () => { myLangs = myLangs.filter(x => x !== l); langs = langs.filter(x => x !== l); saveMyLangs(); };
+    mine.append(b);
+  });
+  if(!myLangs.length){ const n = document.createElement("span"); n.className = "vibe-note"; n.textContent = "No preferred languages yet. Add one below."; mine.append(n); }
+  renderSuggest();
+}
+function renderSuggest(){
+  const box = $("langSuggest"); box.innerHTML = "";
+  const q = $("langInput").value.trim().toLowerCase();
+  let list;
+  if(!q) list = LANG_ALL.slice(0, 12).map(l => ({l}));
+  else {
+    const hits = [];
+    LANG_ALL.forEach(l => { if(l.toLowerCase().startsWith(q)) hits.push({l, rank:0}); else if(l.toLowerCase().includes(q)) hits.push({l, rank:2}); });
+    Object.entries(LANG_ALIAS).forEach(([alt, l]) => { if(alt.toLowerCase().startsWith(q) && !hits.some(h => h.l === l)) hits.push({l, alt, rank:1}); });
+    list = hits.sort((a,b) => a.rank - b.rank).slice(0, 8);
+  }
+  list.filter(x => !myLangs.includes(x.l)).forEach(x => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "lchip";
+    b.textContent = "+ " + x.l + (x.alt ? ` (${x.alt})` : "");
+    b.onclick = () => addMyLang(x.l);
+    box.append(b);
+  });
+  if(q && !list.length){ const n = document.createElement("span"); n.className = "vibe-note"; n.textContent = `No match. Press Add to use "${$("langInput").value.trim()}" anyway.`; box.append(n); }
+}
+function addMyLang(v){
+  v = v.trim(); if(!v) return;
+  v = LANG_ALIAS[v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()] || v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+  if(myLangs.includes(v)){ say(`${v} is already in your languages.`); return; }
+  if(myLangs.length >= MAX_LANGS){ say(`You can have up to ${MAX_LANGS} preferred languages. Remove one first.`); return; }
+  myLangs.push(v); langs = [...langs, v];       // new languages start switched on
+  $("langInput").value = "";
+  saveMyLangs();
+}
+function saveMyLangs(){
+  try{ localStorage.setItem("pr_mylangs", JSON.stringify(myLangs)); }catch(e){}
+  saveLangs();
+}
+function saveLangs(){
+  try{ localStorage.setItem("pr_langs2", JSON.stringify(langs)); }catch(e){}
+  state.pool = []; renderGenre();
+  say(langs.length ? `Only ${langs.join(", ")} songs from the next song on. Hit Skip to switch now.` : "Any language can play again from the next song.");
+  afterPrefChange();
+}
+$("editLangs").onclick = () => { editingLangs = !editingLangs; renderLangs(); if(editingLangs) $("langInput").focus(); };
+$("langInput").oninput = renderSuggest;
+$("addLangForm").onsubmit = e => { e.preventDefault(); addMyLang($("langInput").value); };
+document.querySelectorAll("#genreSeg button").forEach(b => b.onclick = () => {
+  if(b.dataset.g === genre) return;
+  genre = b.dataset.g; try{ localStorage.setItem("pr_genre", genre); }catch(e){}
+  state.pool = []; renderGenre();
+  say(`${GENRES[genre].label} starts with the next song. Hit Skip to switch now.`);
+  afterPrefChange();
+});
+
+document.addEventListener("click", e => { if(openCat && !e.target.closest(".vibes")){ openCat = null; renderVibes(); } });
+document.addEventListener("keydown", e => { if(e.key === "Escape" && openCat){ openCat = null; renderVibes(); } });
+
+/* ============ STATION PRESETS ============ */
+function renderPresets(){
+  const row = $("presetRow"); row.innerHTML = "";
+  presets.forEach((name, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "preset";
+    if(state.place && state.place.name.toLowerCase() === name.toLowerCase()) b.classList.add("on");
+    b.innerHTML = `<small>P${i+1}</small>`; b.append(document.createTextNode(name));
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "×"; x.setAttribute("role","button"); x.setAttribute("aria-label","Remove "+name);
+    x.onclick = e => { e.stopPropagation(); presets.splice(i,1); store.put("pr_presets", presets); renderPresets(); };
+    b.append(x);
+    b.onclick = () => { if($("presets").classList.contains("editing")) return; startUser(); tune(name).catch(err=>say("Signal lost: "+err.message)); };
+    row.append(b);
+  });
+}
+$("saveStation").onclick = () => {
+  if(!state.place) return;
+  if(presets.some(n => n.toLowerCase() === state.place.name.toLowerCase())){ say(`${state.place.name} is already a station.`); return; }
+  presets.push(state.place.name); store.put("pr_presets", presets); renderPresets(); say(`Saved ${state.place.name} as P${presets.length}.`);
+};
+$("editStations").onclick = () => {
+  const ed = $("presets").classList.toggle("editing");
+  $("editStations").textContent = ed ? "Done" : "Edit";
+};
+
+/* ============ SONG SOURCES: no key, no sign in ============ */
+const PIPED = ["https://pipedapi.kavin.rocks","https://pipedapi.adminforge.de","https://api.piped.private.coffee","https://pipedapi.r4fo.com"];
+const INVID = ["https://inv.nadeko.net","https://invidious.nerdvpn.de","https://yewtu.be","https://invidious.f5.si"];
+
+const CRATE = {
+  sunny_hot:  [["ZbZSe6N_BXs","Happy","Pharrell Williams"],["OPf0YbXqDm0","Uptown Funk","Mark Ronson ft. Bruno Mars"],["kJQP7kiw5Fk","Despacito","Luis Fonsi"],["JGwWNGJdvx8","Shape of You","Ed Sheeran"],["CevxZvSJLk8","Roar","Katy Perry"]],
+  sunny_mild: [["djV11Xbc914","Take On Me","a-ha"],["FTQbiNvZqaY","Africa","Toto"],["IcrbM1l_BoI","Wake Me Up","Avicii"],["LjhCEhWiKXk","Just the Way You Are","Bruno Mars"]],
+  sunny_cold: [["dvgZkm1xWPE","Viva la Vida","Coldplay"],["yKNxeF4KMsY","Yellow","Coldplay"]],
+  clear_night:[["4NRXx6U8ABQ","Blinding Lights","The Weeknd"],["34Na4j8AVgA","Starboy","The Weeknd"],["5NV6Rdv1a3I","Get Lucky","Daft Punk"]],
+  cloudy:     [["8UVNT4wvIGY","Somebody That I Used To Know","Gotye"],["V1Pl8CzNzCw","lovely","Billie Eilish & Khalid"]],
+  fog:        [["sElE_BfQ67s","Apocalypse","Cigarettes After Sex"],["RBtlPT23PTM","Space Song","Beach House"]],
+  drizzle:    [["tO4dxvguQDk","Don't Know Why","Norah Jones"],["hLQl3WQQoQ0","Someone Like You","Adele"]],
+  rain:       [["CvBfHwUxHIk","Umbrella","Rihanna ft. JAY Z"],["XFkzRNyygfk","Creep","Radiohead"],["hLQl3WQQoQ0","Someone Like You","Adele"]],
+  storm:      [["v2AC41dglnM","Thunderstruck","AC/DC"],["kXYiU_JCYtU","Numb","Linkin Park"],["7wtfhZwyrcc","Believer","Imagine Dragons"],["YkADj0TPrJA","In the Air Tonight","Phil Collins"],["0J2QdDbelmY","Seven Nation Army","The White Stripes"]],
+  golden_hour:[["IcrbM1l_BoI","Wake Me Up","Avicii"],["yKNxeF4KMsY","Yellow","Coldplay"]],
+  heatwave:   [["kJQP7kiw5Fk","Despacito","Luis Fonsi"],["ZbZSe6N_BXs","Happy","Pharrell Williams"]],
+  after_midnight:[["34Na4j8AVgA","Starboy","The Weeknd"],["4NRXx6U8ABQ","Blinding Lights","The Weeknd"]],
+  cloudy_night:[["4NRXx6U8ABQ","Blinding Lights","The Weeknd"],["V1Pl8CzNzCw","lovely","Billie Eilish & Khalid"]],
+  rain_night: [["XFkzRNyygfk","Creep","Radiohead"],["hLQl3WQQoQ0","Someone Like You","Adele"]],
+  windy:      [["n4RjJKxsamQ","Wind of Change","Scorpions"],["tH2w6Oxx0kQ","Dust in the Wind","Kansas"],["pXRviuL6vMY","Stressed Out","Twenty One Pilots"]],
+  humid:      [["6Whgn_iE5uc","Smooth","Santana ft. Rob Thomas"],["5NV6Rdv1a3I","Get Lucky","Daft Punk"]],
+  dry:        [["09839DpTctU","Hotel California","Eagles"],["FTQbiNvZqaY","Africa","Toto"]],
+  showers:    [["djV11Xbc914","Take On Me","a-ha"],["CvBfHwUxHIk","Umbrella","Rihanna ft. JAY Z"]],
+  ice_rain:   [["hLQl3WQQoQ0","Someone Like You","Adele"],["XFkzRNyygfk","Creep","Radiohead"]],
+  hail:       [["v2AC41dglnM","Thunderstruck","AC/DC"],["kXYiU_JCYtU","Numb","Linkin Park"]],
+  blizzard:   [["fJ9rUzIMcZQ","Bohemian Rhapsody","Queen"],["7wtfhZwyrcc","Believer","Imagine Dragons"]],
+  freezing:   [["tO4dxvguQDk","Don't Know Why","Norah Jones"],["dvgZkm1xWPE","Viva la Vida","Coldplay"]],
+  snow:       [["E8gmARGvPlI","Last Christmas","Wham!"],["aAkMkVFwAoo","All I Want for Christmas Is You","Mariah Carey"],["fJ9rUzIMcZQ","Bohemian Rhapsody","Queen"]],
+};
+
+const WORLD_CRATE = [["kJQP7kiw5Fk","Despacito","Luis Fonsi ft. Daddy Yankee"],["9bZkp7q19f0","Gangnam Style","PSY"],["gdZLi9oWNZg","Dynamite","BTS"],
+  ["pRpeEdMmmQ0","Waka Waka","Shakira"],["WcIcVapfqXw","Calm Down","Rema & Selena Gomez"],["7zp1TbLFPp8","Danza Kuduro","Don Omar & Lucenzo"]];
+
+function timeoutFetch(url, ms=6000){
+  const c = new AbortController(); const t = setTimeout(()=>c.abort(), ms);
+  return fetch(url,{signal:c.signal}).then(r=>{ clearTimeout(t); if(!r.ok) throw new Error(r.status); return r.json(); });
+}
+const goodLen = s => !s || (s >= 90 && s <= 600);   // real songs only, no 10 hour mixes
+
+async function searchGuest(q){
+  const piped = PIPED.map(base => timeoutFetch(`${base}/search?q=${encodeURIComponent(q)}&filter=music_songs`).then(r=>{
+    const out = (r.items||[]).filter(i=>i.url && i.url.includes("v=") && goodLen(i.duration))
+      .map(i=>({id:i.url.split("v=")[1].split("&")[0], title:i.title, by:(i.uploaderName||"").replace(/ - Topic$/,""), len:i.duration}));
+    if(out.length < 3) throw new Error("thin"); return out;
+  }));
+  try { return {list: await Promise.any(piped), src:"YouTube (guest)"}; } catch(e){}
+  const inv = INVID.map(base => timeoutFetch(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`).then(r=>{
+    const out = (r||[]).filter(i=>i.type==="video" && goodLen(i.lengthSeconds))
+      .map(i=>({id:i.videoId, title:i.title, by:i.author, len:i.lengthSeconds}));
+    if(out.length < 3) throw new Error("thin"); return out;
+  }));
+  try { return {list: await Promise.any(inv), src:"YouTube (guest)"}; } catch(e){}
+  return null;
+}
+async function searchWithKey(q, key){
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&videoEmbeddable=true&maxResults=25&q=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}`;
+  const r = await timeoutFetch(url);
+  const ta = document.createElement("textarea"); const dec = s => (ta.innerHTML = s, ta.value);
+  return {list:(r.items||[]).filter(i=>i.id && i.id.videoId).map(i=>({id:i.id.videoId, title:dec(i.snippet.title), by:dec(i.snippet.channelTitle)})), src:"YouTube"};
+}
+
+/* grab more songs for the current vibe using a search phrase not used yet */
+async function refillPool(){
+  const uk = poolKey();
+  const used = state.usedQueries[uk] = state.usedQueries[uk] || [];
+  const fresh = queriesFor(state.vibe).filter(q => !used.includes(q));
+  if(!fresh.length) return false;
+  const q = fresh[Math.floor(Math.random()*fresh.length)];
+  used.push(q);
+  let res = null;
+  const key = store.get("pr_key");
+  if(key){ try { res = await searchWithKey(q, key); } catch(e){} }
+  if(!res || !res.list.length) res = await searchGuest(q);
+  if(!res || !res.list.length) return true;          // this phrase failed, caller tries the next one
+  state.pool.push(...res.list.filter(okLang).sort(()=>Math.random()-.5).map(s=>({...s, src:res.src, q})));
+  return true;
+}
+
+/* THE RULE: never repeat; only allow repeats once 30+ songs played and nothing new is left. Disliked songs never come back. */
+async function chooseSong(){
+  for(let tries=0; tries<20; tries++){
+    state.pool = state.pool.filter(s => !wasPlayed(s) && !isDisliked(s) && okLang(s));
+    if(state.pool.length) return state.pool.shift();
+    if(!(await refillPool())) break;
+  }
+  const base = genre === "billboard" ? (CRATE[state.vibe] || []) : [...WORLD_CRATE, ...(CRATE[state.vibe] || [])];
+  const crate = base.map(([id,title,by])=>({id,title,by,src:"backup crate"})).filter(s=>!wasPlayed(s) && !isDisliked(s) && crateOk(s));
+  if(crate.length) return crate[Math.floor(Math.random()*crate.length)];
+  if(history.length >= REPEAT_AFTER){
+    say("Played everything for this vibe, starting a fresh round.");
+    const recent = new Set(history.slice(-10).map(h=>h.id));   // never replay the last 10 right away
+    history = history.filter(h => recent.has(h.id));
+    state.usedQueries[poolKey()] = [];
+    store.put("pr_history", history); renderLog();
+    return chooseSong();
+  }
+  return null;
+}
+
+/* THE RADIO LOOP: song ends or Skip pressed → rescan weather → pick a fresh song for that vibe → play */
+/* ============ LIKED SONGS MODE: plays only your hearts, shuffled, no repeats until all have played ============ */
+let likedMode = false, likedQueue = [];
+const shuffle = a => { a = a.slice(); for(let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function nextLiked(){
+  likedQueue = likedQueue.filter(s => isLiked(s) && !isDisliked(s));            // drop anything you un-hearted
+  if(!likedQueue.length){
+    const cur = state.nowPlaying && state.nowPlaying.id;
+    likedQueue = shuffle(likes.filter(s => !isDisliked(s)));
+    if(likedQueue.length > 1 && likedQueue[0].id === cur) likedQueue.push(likedQueue.shift());   // don't replay the same song back to back
+  }
+  return likedQueue.shift() || null;
+}
+function renderLikedBtn(){
+  const b = $("likedPlay");
+  b.classList.toggle("on", likedMode);
+  b.textContent = likedMode ? "Back to weather radio" : `▶ Play liked${likes.length ? " (" + likes.length + ")" : ""}`;
+  b.disabled = !likedMode && !likes.length;
+  b.title = likes.length ? "" : "Tap ♥ on songs first";
+}
+$("likedPlay").onclick = () => {
+  if(likedMode){                                          // leaving: current song keeps playing, radio resumes next
+    likedMode = false; renderLikedBtn(); renderGenre();
+    say("Back to the weather radio from the next song. Hit Skip to switch now.");
+    return;
+  }
+  if(!likes.length){ say("Tap ♥ on songs you love, then play them here."); return; }
+  likedMode = true; likedQueue = []; renderLikedBtn(); renderGenre();
+  say(`Playing your ${likes.length} liked song${likes.length === 1 ? "" : "s"} on shuffle.`);
+  if(state.place){ startUser(); playNext(); }              // you pressed play, so it starts right away
+};
+
+async function playNext(){
+  if(busy || !state.place) return;
+  busy = true;
+  showBetween(started ? "Scanning the sky…" : "");
+  try{
+    try { await scanWeather(); } catch(e){ setScanning(false, "Weather scan failed, keeping the last vibe"); if(!state.vibe){ say("Weather signal lost. Try Tune in again."); return; } }
+    if(likedMode && !likes.length){ likedMode = false; renderLikedBtn(); renderGenre(); say("No liked songs left, back to the weather radio."); }
+    showBetween(started ? (likedMode ? "Your liked songs\nUp next…" : `${VIBES[state.vibe].label}\nFinding the next song…`) : "");
+    const song = likedMode ? nextLiked() : await chooseSong();
+    if(!song){
+      const picks = [...activeLangs(), ...eras].join(" / ");
+      say(picks ? `Couldn't find more ${picks} songs for this vibe right now. Add another language or era, or pick a different vibe.` : "Out of fresh songs for this vibe right now. Pick another vibe or city.");
+      return;
+    }
+    remember(song);
+    state.nowPlaying = song;
+    ["prevBtn","nextBtn","playBtn"].forEach(id=>$(id).disabled=false);
+    say("");
+    if(started) playVideo(song);
+    else showPlayPrompt(song);
+  } finally { busy = false; showBetween(""); }
+}
+function showBetween(txt){ const b = $("between"); b.hidden = !txt; b.textContent = txt; b.style.whiteSpace = "pre-line"; }
+
+function onSongEnd(){
+  if(sleepEndOfSong){ sleepEndOfSong = false; $("sleepSel").value = "0"; $("sleepLeft").textContent = ""; stopAll(); say("Sleep timer: stopped after that song. Press Play to keep going."); return; }
+  playNext();
+}
+
+let userTapped = false;
+addEventListener("pointerdown", () => {
+  userTapped = true;
+  if(player && player.isMuted && player.isMuted()){ player.unMute(); $("unmute").hidden = true; }
+}, {capture:true});
+
+/* ============ NOW PLAYING CARD ============ */
+function showNowPlaying(song, line){
+  const art = $("cdArt"); art.style.visibility = ""; art.src = thumb(song.id);
+  $("moodQ").textContent = song.q ? `“${song.q}”` : "";
+  $("moodMode").textContent = modeText();
+  $("npTitle").textContent = song.title;
+  $("npChan").textContent = line;
+  $("npThumb").src = thumb(song.id);
+  $("np").hidden = false;
+  $("likeBtn").classList.toggle("on", isLiked(song));
+  $("dislikeBtn").classList.remove("on");
+  $("tEnd").textContent = fmt(song.len);
+}
+
+let errorsInRow = 0, useNoCookie = false, ytWaitStart = 0;
+let playSeq = 0;
+function playVideo(song, seq){
+  if(seq === undefined) seq = ++playSeq;          // each new song gets a ticket
+  else if(seq !== playSeq) return;                // a newer song started while this one waited, so drop it
+  state.nowPlaying = song;
+  showNowPlaying(song, likedMode ? `${song.by} · ♥ Liked songs` : `${song.by} · ${VIBES[state.vibe] ? VIBES[state.vibe].label : ""} · ${GENRES[genre].short}`);
+  $("empty").hidden = true; $("yt").hidden = false;
+
+  if(!ytReady){
+    if(!ytWaitStart) ytWaitStart = Date.now();
+    if(Date.now() - ytWaitStart < 6000){ setTimeout(()=>playVideo(song, seq), 400); return; }
+    return plainEmbed(song);
+  }
+  if(!player){
+    player = new YT.Player("yt", {
+      host: useNoCookie ? "https://www.youtube-nocookie.com" : "https://www.youtube.com",
+      videoId:song.id,
+      playerVars:{autoplay:1, playsinline:1, rel:0, mute:0, origin: location.protocol.startsWith("http") ? location.origin : undefined},
+      events:{
+        onReady:e=>{ e.target.unMute(); e.target.setVolume(volume); e.target.playVideo(); },
+        onStateChange:e=>{
+          if(e.data===YT.PlayerState.PLAYING){ errorsInRow = 0; say(""); setPlayLabel(true); }
+          if(e.data===YT.PlayerState.PAUSED) setPlayLabel(false);
+          if(e.data===YT.PlayerState.ENDED){ setPlayLabel(false); onSongEnd(); }
+        },
+        onError:()=>{
+          errorsInRow++;
+          if(errorsInRow === 3 && !useNoCookie){
+            useNoCookie = true; player.destroy(); player = null;
+            const box = document.createElement("div"); box.id = "yt"; $("playerWrap").prepend(box);
+          }
+          if(errorsInRow >= 8){ say("YouTube keeps refusing to play here. Put the file on app.netlify.com/drop so it has a real web address, then it plays normally."); return; }
+          say("That one can't play here, trying the next song…");
+          setTimeout(playNext, 700);
+        }
+      }
+    });
+  } else { player.loadVideoById(song.id); player.setVolume(volume); }
+}
+
+/* backup player: plain YouTube embed with a timer to move on when the song should be done */
+let plainTimer = null, plainPaused = null, plainSong = null, plainEndsAt = 0, plainLeft = 0;
+function togglePlain(){
+  if(!plainPaused){ plainLeft = Math.max(5, (plainEndsAt - Date.now())/1000); clearTimeout(plainTimer); $("yt").innerHTML = ""; plainPaused = true; setPlayLabel(false); }
+  else { const start = Math.round((plainSong.len||240) - plainLeft); plainEmbed(plainSong, start, plainLeft); }
+}
+function plainEmbed(song, startAt=0, secondsLeft=null){
+  plainSong = song; plainPaused = false; setPlayLabel(true);
+  const left = secondsLeft || (song.len || 240);
+  plainEndsAt = Date.now() + left*1000;
+  $("yt").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${song.id}?autoplay=1&playsinline=1&rel=0&start=${startAt}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="border:0;width:100%;height:100%"></iframe>`;
+  clearTimeout(plainTimer);
+  plainTimer = setTimeout(onSongEnd, left * 1000);
+}
+
+function stopAll(){
+  if(player && player.pauseVideo) player.pauseVideo();
+  else if(plainPaused === false) togglePlain();
+  setPlayLabel(false);
+}
+
+/* Prev replays the previous song on purpose (your choice, so it's allowed) */
+function prev(){
+  if(history.length < 2) return;
+  const s = history[history.length-2];
+  startUser(); playVideo({...s, src:"your history"});
+}
+
+/* ============ PLAY BUTTON: press once, then it runs on its own ============ */
+function showPlayPrompt(song){
+  pending = song;
+  showNowPlaying(song, `${song.by} · up first`);
+  $("empty").hidden = true;
+  $("bigPlay").hidden = false;
+  $("playBtn").disabled = false;
+}
+function startUser(){ started = true; userTapped = true; $("bigPlay").hidden = true; pending = null; }
+function startRadio(){
+  const s = pending; startUser();
+  if(s) playVideo(s); else playNext();
+}
+function togglePlay(){
+  if(!started) return startRadio();
+  if(player && player.getPlayerState){
+    const st = player.getPlayerState();
+    if(st === YT.PlayerState.PLAYING) player.pauseVideo();
+    else { if(player.isMuted()) player.unMute(); player.playVideo(); }
+  } else if(plainPaused !== null){ togglePlain(); }
+}
+function setPlayLabel(playing){
+  $("playBtn").textContent = playing ? "❚❚ Pause" : "▶ Play";
+  document.body.classList.toggle("playing", playing);
+}
+
+/* ============ LIKE / DISLIKE ============ */
+$("likeBtn").onclick = () => {
+  const s = state.nowPlaying; if(!s) return;
+  if(isLiked(s)) likes = likes.filter(l => l.id !== s.id);
+  else likes.unshift({id:s.id, key:songKey(s), title:s.title, by:s.by, len:s.len, vibe:state.vibe});
+  store.put("pr_likes", likes);
+  $("likeBtn").classList.toggle("on", isLiked(s));
+  renderLog();
+};
+$("dislikeBtn").onclick = () => {
+  const s = state.nowPlaying; if(!s) return;
+  dislikes.push({id:s.id, key:songKey(s)}); store.put("pr_dislikes", dislikes);
+  likes = likes.filter(l => l.id !== s.id); store.put("pr_likes", likes);
+  $("dislikeBtn").classList.add("on");
+  say("Got it, that song won't play again.");
+  startUser(); playNext();
+};
+
+/* ============ PROGRESS, VOLUME, SLEEP ============ */
+setInterval(() => {
+  let cur = 0, dur = 0;
+  if(player && player.getDuration){ try{ cur = player.getCurrentTime(); dur = player.getDuration(); }catch(e){} }
+  else if(plainSong && plainPaused === false){ dur = plainSong.len || 240; cur = dur - (plainEndsAt - Date.now())/1000; }
+  if(dur > 0){
+    $("barFill").style.width = Math.min(100, cur/dur*100) + "%";
+    $("tNow").textContent = fmt(cur); $("tEnd").textContent = fmt(dur);
+  }
+}, 500);
+$("bar").onclick = e => {
+  if(!(player && player.getDuration)) return;
+  const r = $("bar").getBoundingClientRect();
+  player.seekTo(player.getDuration() * Math.min(1, Math.max(0, (e.clientX - r.left)/r.width)), true);
+};
+$("vol").value = volume;
+$("vol").oninput = e => {
+  volume = +e.target.value; store.set("pr_vol", volume);
+  if(player && player.setVolume) player.setVolume(volume);
+};
+
+let sleepAt = 0, sleepEndOfSong = false;
+$("sleepSel").onchange = e => {
+  const v = e.target.value;
+  sleepEndOfSong = v === "end";
+  sleepAt = (v !== "0" && v !== "end") ? Date.now() + (+v)*60000 : 0;
+  $("sleepLeft").textContent = sleepEndOfSong ? "after this song" : "";
+};
+setInterval(() => {
+  if(!sleepAt) return;
+  const left = sleepAt - Date.now();
+  if(left <= 0){ sleepAt = 0; $("sleepSel").value = "0"; $("sleepLeft").textContent = ""; stopAll(); say("Sleep timer: music stopped. Press Play to keep going."); return; }
+  $("sleepLeft").textContent = fmt(left/1000);
+}, 1000);
+
+/* ============ PLAYED / LIKED LIST ============ */
+let logTab = "played";
+function renderLog(){
+  if($("likedPlay")) renderLikedBtn();
+  if(likedMode) $("moodMode").textContent = modeText();
+  const ul = $("logList"); ul.innerHTML = "";
+  const items = logTab === "played" ? history.slice(-40).reverse() : likes;
+  if(!items.length){
+    const li = document.createElement("li"); li.className = "none";
+    li.textContent = logTab === "played" ? "Songs you play show up here." : "Tap ♥ on a song to keep it here.";
+    ul.append(li); return;
+  }
+  items.forEach(s => {
+    const li = document.createElement("li");
+    const img = document.createElement("img"); img.src = thumb(s.id); img.alt = ""; img.loading = "lazy";
+    const meta = document.createElement("div"); meta.style.minWidth = "0";
+    const t = document.createElement("div"); t.className = "lt"; t.textContent = s.title;
+    const b = document.createElement("div"); b.className = "lb"; b.textContent = [s.by, s.city].filter(Boolean).join(" · ");
+    meta.append(t, b);
+    const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = s.vibe && VIBES[s.vibe] ? VIBES[s.vibe].label : "";
+    li.append(img, meta, tag);
+    li.title = "Play this again";
+    li.onclick = () => { startUser(); playVideo({...s, src:"your list"}); };
+    ul.append(li);
+  });
+}
+function setTab(t){
+  logTab = t;
+  $("tabPlayed").classList.toggle("on", t==="played"); $("tabPlayed").setAttribute("aria-selected", t==="played");
+  $("tabLiked").classList.toggle("on", t==="liked");   $("tabLiked").setAttribute("aria-selected", t==="liked");
+  renderLog();
+}
+$("tabPlayed").onclick = () => setTab("played");
+$("tabLiked").onclick = () => setTab("liked");
+
+/* ============ WIRING ============ */
+$("bigPlay").onclick = startRadio;
+$("playBtn").onclick = togglePlay;
+$("nextBtn").onclick = () => { startUser(); playNext(); };     // Skip also rescans the weather first
+$("prevBtn").onclick = prev;
+$("tuneForm").onsubmit = e => { e.preventDefault(); const c=$("city").value.trim(); if(!c) return; startUser(); tune(c).catch(err=>say("Signal lost: "+err.message)); };
+window.onYouTubeIframeAPIReady = () => { ytReady = true; };
+
+/* ============ SKY EFFECTS ============ */
+const cv = $("sky"), ctx = cv.getContext("2d");
+let fx = "sun", parts = [], flash = 0, t = 0;
+function resize(){ cv.width = innerWidth*devicePixelRatio; cv.height = innerHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+addEventListener("resize", resize); resize();
+function setFx(kind){
+  fx = kind; parts = [];
+  const W=innerWidth, H=innerHeight;
+  const n = {rain:260, storm:320, drizzle:110, snow:160, stars:180, clouds:7, fog:6, sun:0,
+             wind:90, dust:150, frost:120, blizzard:420, hail:200, showers:140}[kind] || 0;
+  for(let i=0;i<n;i++) parts.push({x:Math.random()*W, y:Math.random()*H, s:Math.random(), r:Math.random()*Math.PI*2});
+}
+function draw(){
+  t += 1/60;
+  const W=innerWidth, H=innerHeight;
+  ctx.clearRect(0,0,W,H);
+  if(fx==="sun"||fx==="heat"||fx==="showers"||fx==="dust"){
+    const x=W*.82, y=H*.18, R=Math.min(W,H)*.12;
+    const g=ctx.createRadialGradient(x,y,0,x,y,R*4);
+    g.addColorStop(0,"rgba(255,240,190,.95)"); g.addColorStop(.25,"rgba(255,210,120,.35)"); g.addColorStop(1,"rgba(255,200,120,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,R*4,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(255,235,180,.18)"; ctx.lineWidth=2;
+    for(let i=0;i<12;i++){ const a=i/12*Math.PI*2+t*.1; ctx.beginPath(); ctx.moveTo(x+Math.cos(a)*R*1.4,y+Math.sin(a)*R*1.4); ctx.lineTo(x+Math.cos(a)*R*2.6,y+Math.sin(a)*R*2.6); ctx.stroke(); }
+  }
+  if(fx==="stars"){
+    for(const p of parts){ ctx.fillStyle=`rgba(255,255,255,${.3+.7*Math.abs(Math.sin(t*1.5+p.r))*p.s})`; ctx.fillRect(p.x,p.y*.75,1.6,1.6); }
+    ctx.fillStyle="rgba(255,250,230,.9)"; ctx.beginPath(); ctx.arc(W*.8,H*.18,28,0,7); ctx.fill();
+  }
+  if(fx==="rain"||fx==="storm"||fx==="drizzle"||fx==="showers"){
+    const light = fx==="drizzle"||fx==="showers";
+    ctx.strokeStyle = light ? "rgba(200,220,255,.38)" : "rgba(190,210,255,.5)";
+    ctx.lineWidth = 1.2;
+    const sp = light?9:15, len = light?10:18;
+    ctx.beginPath();
+    for(const p of parts){ p.y += sp*(.6+p.s); p.x -= 2; if(p.y>H){p.y=-20; p.x=Math.random()*W*1.1;} ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-3,p.y+len); }
+    ctx.stroke();
+    if(fx==="storm"){ if(Math.random()<.006) flash=1; if(flash>0){ ctx.fillStyle=`rgba(255,255,240,${flash*.55})`; ctx.fillRect(0,0,W,H); flash-=.06; } }
+  }
+  if(fx==="snow"){
+    ctx.fillStyle="rgba(255,255,255,.9)";
+    for(const p of parts){ p.y += .6+p.s*1.4; p.x += Math.sin(t+p.r)*.6; if(p.y>H){p.y=-5;p.x=Math.random()*W;} ctx.beginPath(); ctx.arc(p.x,p.y,1+p.s*2.6,0,7); ctx.fill(); }
+  }
+  if(fx==="clouds"||fx==="fog"){
+    for(const p of parts){
+      p.x += .15+p.s*.3; if(p.x>W+300) p.x=-300;
+      const y = fx==="fog" ? H*(.3+p.s*.6) : H*(.08+p.s*.35), r = fx==="fog"?260:120+p.s*80;
+      const g=ctx.createRadialGradient(p.x,y,0,p.x,y,r);
+      g.addColorStop(0, fx==="fog"?"rgba(255,255,255,.22)":(state.vibe==="cloudy_night"?"rgba(200,210,235,.12)":"rgba(255,255,255,.28)")); g.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(p.x,y,r*1.6,r*.6,0,0,7); ctx.fill();
+    }
+  }
+  if(fx==="golden"){                                  // big low sun sitting on the horizon
+    const x=W*.75, y=H*.86, R=Math.min(W,H)*.2;
+    const g=ctx.createRadialGradient(x,y,0,x,y,R*3.2);
+    g.addColorStop(0,"rgba(255,214,150,.95)"); g.addColorStop(.3,"rgba(255,140,110,.4)"); g.addColorStop(1,"rgba(255,120,120,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,R*3.2,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(255,220,180,.12)"; ctx.lineWidth=3;
+    for(let i=0;i<6;i++){ const yy=y-R*.4+i*14+Math.sin(t+i)*2; ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke(); }
+  }
+  if(fx==="heat"||fx==="haze"){                       // shimmering hot air
+    ctx.strokeStyle = fx==="heat" ? "rgba(255,235,190,.12)" : "rgba(255,255,255,.09)"; ctx.lineWidth=10;
+    for(let i=0;i<9;i++){
+      const base=H*(.45+i*.06); ctx.beginPath();
+      for(let x=0;x<=W;x+=24){ const yy=base+Math.sin(x/70+t*1.6+i)*6; x?ctx.lineTo(x,yy):ctx.moveTo(x,yy); }
+      ctx.stroke();
+    }
+  }
+  if(fx==="wind"){                                    // fast streaks and a few tumbling leaves
+    for(const p of parts){
+      p.x += 12+p.s*14; if(p.x>W+120){ p.x=-120; p.y=Math.random()*H; }
+      const y=p.y+Math.sin(t*2+p.r)*8;
+      if(p.s>.88){ ctx.save(); ctx.translate(p.x,y); ctx.rotate(t*4+p.r); ctx.fillStyle="rgba(214,190,120,.7)"; ctx.beginPath(); ctx.ellipse(0,0,6,3,0,0,7); ctx.fill(); ctx.restore(); }
+      else { ctx.strokeStyle=`rgba(255,255,255,${.12+p.s*.18})`; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(p.x,y); ctx.lineTo(p.x-50-p.s*90,y); ctx.stroke(); }
+    }
+  }
+  if(fx==="dust"){                                    // drifting desert dust
+    for(const p of parts){
+      p.x += .6+p.s*1.6; p.y += Math.sin(t+p.r)*.4; if(p.x>W+5){ p.x=-5; p.y=Math.random()*H; }
+      ctx.fillStyle=`rgba(236,196,140,${.25+p.s*.4})`; ctx.beginPath(); ctx.arc(p.x,p.y,.8+p.s*1.8,0,7); ctx.fill();
+    }
+  }
+  if(fx==="frost"){                                   // icy sparkles
+    for(const p of parts){
+      const a=Math.max(0,Math.sin(t*2+p.r*3)); if(a<.05) continue;
+      const sz=2+p.s*4; ctx.strokeStyle=`rgba(230,246,255,${a*.85})`; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(p.x-sz,p.y); ctx.lineTo(p.x+sz,p.y); ctx.moveTo(p.x,p.y-sz); ctx.lineTo(p.x,p.y+sz); ctx.stroke();
+    }
+  }
+  if(fx==="blizzard"){                                // sideways snow and whiteout
+    ctx.fillStyle="rgba(255,255,255,.08)"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="rgba(255,255,255,.9)";
+    for(const p of parts){ p.x += 5+p.s*7; p.y += 1.5+p.s*2.5; if(p.x>W||p.y>H){ p.x=Math.random()*W-W*.3; p.y=-5; } ctx.beginPath(); ctx.arc(p.x,p.y,.8+p.s*2.2,0,7); ctx.fill(); }
+  }
+  if(fx==="hail"){                                    // fast white pellets and lightning
+    ctx.fillStyle="rgba(240,248,255,.9)";
+    for(const p of parts){ p.y += 16+p.s*10; if(p.y>H){ p.y=-10; p.x=Math.random()*W; } ctx.beginPath(); ctx.arc(p.x,p.y,1.4+p.s*2,0,7); ctx.fill(); }
+    if(Math.random()<.005) flash=1; if(flash>0){ ctx.fillStyle=`rgba(255,255,240,${flash*.5})`; ctx.fillRect(0,0,W,H); flash-=.06; }
+  }
+  requestAnimationFrame(draw);
+}
+setFx("sun"); draw();
+
+/* CD: spins while a song plays, eases to a stop on pause */
+const cdEl = $("cd"), calm = matchMedia("(prefers-reduced-motion: reduce)");
+$("cdArt").onerror = function(){ this.style.visibility = "hidden"; };
+let cdAngle = 0, cdSpeed = 0, cdLast = performance.now();
+(function spinCD(now){
+  const dt = Math.min(64, now - cdLast) / 1000; cdLast = now;
+  const target = document.body.classList.contains("playing") && !calm.matches ? 1 : 0;
+  cdSpeed += (target - cdSpeed) * Math.min(1, dt * (target ? 2.5 : 2));
+  if(cdSpeed > .002){ cdAngle = (cdAngle + cdSpeed * 160 * dt) % 360; cdEl.style.transform = `rotate(${cdAngle}deg)`; }
+  requestAnimationFrame(spinCD);
+})(performance.now());
+
+if("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+
+/* first paint */
+renderPresets(); renderGenre(); renderVibes(); renderLog();
+tune($("city").value).catch(err=>say("Signal lost: "+err.message));
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
