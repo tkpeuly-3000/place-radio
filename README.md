@@ -12,8 +12,8 @@ Rain in London plays sad songs. A windy afternoon in Lubbock plays restless, dri
 
 ## Try it
 
-**Live app:** `https://YOUR-USERNAME.github.io/place-radio/`
-(version without the spinning CD: `https://YOUR-USERNAME.github.io/place-radio/no-cd/`)
+**Live app:** `https://tkpeuly-3000.github.io/place-radio/`
+(version without the spinning CD: `https://tkpeuly-3000.github.io/place-radio/no-cd/`)
 
 No sign in, no account, no API key. Open the link, press Play once, and it keeps going.
 
